@@ -38,7 +38,17 @@ export function ModelBrowser() {
     setLoadingModels(true);
     setError(null);
     try {
-      const res = await fetch('/api/models/openrouter');
+      // In Capacitor (no server) fetch OpenRouter directly; in web use proxy.
+      const url =
+        typeof window !== 'undefined' &&
+        (window as unknown as { Capacitor?: { isNative?: boolean } }).Capacitor?.isNative
+          ? 'https://openrouter.ai/api/v1/models'
+          : '/api/models/openrouter';
+      const res = await fetch(url, {
+        headers: url.startsWith('https://openrouter')
+          ? { 'HTTP-Referer': 'https://openmail.app', 'X-Title': 'OpenMail' }
+          : {},
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { data: Parameters<typeof parseOpenRouterModels>[0] };
       const parsed = parseOpenRouterModels(data.data ?? []);
