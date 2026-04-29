@@ -16,6 +16,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { getProviderDisplay } from '@/lib/ai/client';
 import { scrubPII } from '@/lib/ai/pii-scrubber';
 import { BUILT_IN_PERSONAS } from '@/lib/ai/providers';
+import { completeDirectly, IS_MOBILE } from '@/lib/ai/complete-direct';
 import type { AIPersona, ProviderId, TokenUsageRecord } from '@/types';
 
 type AIPanelTab = 'actions' | 'persona' | 'model';
@@ -60,31 +61,36 @@ function useAI() {
       processedPrompt = text;
     }
 
-    const res = await fetch('/api/ai/complete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: selectedModelId,
-        provider,
-        apiKey,
-        messages: [
-          { role: 'system', content: persona.systemPrompt },
-          { role: 'user', content: processedPrompt },
-        ],
-        maxTokens: 1024,
-      }),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(err || `Request failed (${res.status})`);
-    }
-
-    const data = await res.json() as {
-      content: string;
-      usage: { promptTokens: number; completionTokens: number; totalTokens: number };
-      costUsd: number;
+    const requestPayload = {
+      model: selectedModelId,
+      provider,
+      apiKey,
+      messages: [
+        { role: 'system' as const, content: persona.systemPrompt },
+        { role: 'user' as const, content: processedPrompt },
+      ],
+      maxTokens: 1024,
     };
+
+    // Inside Capacitor the Next.js server doesn't exist — call providers directly.
+    const data = IS_MOBILE
+      ? await completeDirectly(requestPayload)
+      : await (async () => {
+          const res = await fetch('/api/ai/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestPayload),
+          });
+          if (!res.ok) {
+            const err = await res.text();
+            throw new Error(err || `Request failed (${res.status})`);
+          }
+          return res.json() as Promise<{
+            content: string;
+            usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+            costUsd: number;
+          }>;
+        })();
 
     const record: TokenUsageRecord = {
       id: crypto.randomUUID(),
